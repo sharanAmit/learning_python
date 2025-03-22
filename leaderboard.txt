@@ -1,1 +1,5 @@
 Amit,30,hard
+amits,20,medium
+a,0,medium
+as,0,easy
+aaa,0,medium

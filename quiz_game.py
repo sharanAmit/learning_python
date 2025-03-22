@@ -3,9 +3,10 @@ from tkinter import messagebox
 import random
 import threading
 import time
+import requests
 
-# Data
-questions = {
+# Fallback local questions
+local_questions = {
     "easy": [
         {"type": "multiple", "question": "Capital of France?", "options": ["Paris", "London", "Berlin", "Madrid"], "answer": "Paris"},
         {"type": "truefalse", "question": "The sky is blue.", "answer": "True"},
@@ -23,6 +24,7 @@ questions = {
 difficulty_points = {"easy": 10, "medium": 20, "hard": 30}
 LEADERBOARD_FILE = "leaderboard.txt"
 TIME_LIMIT = 15
+API_URL = "http://0.0.0.0:8000/generate_question"  # Change if needed
 
 class QuizApp:
     def __init__(self, root):
@@ -55,8 +57,6 @@ class QuizApp:
         for widget in self.root.winfo_children():
             widget.destroy()
 
-        self.root.unbind("<Return>")
-
         tk.Label(self.root, text="Welcome to the Quiz Game!", font=("Arial", 18)).pack(pady=20)
 
         tk.Label(self.root, text="Enter your name:").pack()
@@ -83,8 +83,32 @@ class QuizApp:
         self.score = 0
         self.correct = 0
         self.q_index = 0
-        self.questions = random.sample(questions[self.difficulty], len(questions[self.difficulty]))
+        self.questions = self.fetch_questions(self.difficulty, num=5)
         self.next_question()
+
+    def fetch_questions(self, difficulty, num=5):
+        question_list = []
+        try:
+            for _ in range(num):
+                response = requests.get(API_URL, params={"difficulty": difficulty}, timeout=5)
+                if response.status_code == 200:
+                    data = response.json()
+                    # Validate the structure
+                    if "question" in data and "answer" in data and "type" in data:
+                        if data["type"] == "multiple" and "options" not in data:
+                            raise ValueError("Missing options for multiple-choice question.")
+                        question_list.append(data)
+                else:
+                    print(f"API error: {response.status_code}")
+        except Exception as e:
+            print(f"Exception while calling API: {e}")
+            messagebox.showwarning("API Error", "Could not fetch questions from the server.\nUsing local questions instead.")
+
+        # Fallback if API failed
+        if not question_list:
+            question_list = random.sample(local_questions[difficulty], len(local_questions[difficulty]))
+        print(f"api res is {question_list}")
+        return question_list
 
     def next_question(self):
         if self.q_index >= len(self.questions):
@@ -99,8 +123,6 @@ class QuizApp:
         for widget in self.root.winfo_children():
             widget.destroy()
 
-        self.root.bind("<Return>", lambda e: self.submit_answer())
-
         tk.Label(self.root, text=f"Time left: {self.timer} sec", font=("Arial", 12), fg="red", name="timer").pack(anchor="ne", padx=10, pady=5)
         tk.Label(self.root, text=f"Score: {self.score}", font=("Arial", 12)).pack(anchor="nw", padx=10)
 
@@ -109,9 +131,7 @@ class QuizApp:
         self.answer_var = tk.StringVar()
 
         if q["type"] == "multiple":
-            options = q["options"][:]
-            random.shuffle(options)
-            for opt in options:
+            for opt in q.get("options", []):
                 tk.Radiobutton(self.root, text=opt, variable=self.answer_var, value=opt).pack(anchor="w", padx=30)
         elif q["type"] == "truefalse":
             for opt in ["True", "False"]:
@@ -124,15 +144,11 @@ class QuizApp:
     def update_timer(self):
         self.timer -= 1
         if self.timer >= 0:
-            try:
-                timer_label = self.root.nametowidget("timer")
-                timer_label.config(text=f"Time left: {self.timer} sec")
-            except:
-                return
+            timer_label = self.root.nametowidget("timer")
+            timer_label.config(text=f"Time left: {self.timer} sec")
             self.timer_id = self.root.after(1000, self.update_timer)
         else:
-            if self.timer_id:
-                self.root.after_cancel(self.timer_id)
+            self.root.after_cancel(self.timer_id)
             messagebox.showinfo("Time's up!", "You ran out of time!")
             self.q_index += 1
             self.next_question()
@@ -144,14 +160,10 @@ class QuizApp:
         if self.timer_id:
             self.root.after_cancel(self.timer_id)
 
-        user_ans = self.answer_var.get().strip()
-        if not user_ans:
-            messagebox.showerror("Error", "Please enter an answer before submitting.")
-            self.start_timer()
-            return
+        user_ans = self.answer_var.get().strip().lower()
+        correct_ans = self.questions[self.q_index]['answer'].lower()
 
-        correct_ans = self.questions[self.q_index]['answer'].strip().lower()
-        if user_ans.lower() == correct_ans:
+        if user_ans == correct_ans:
             self.correct += 1
             self.score += difficulty_points[self.difficulty]
             messagebox.showinfo("Correct", "✅ Good job!")
@@ -162,7 +174,6 @@ class QuizApp:
         self.next_question()
 
     def show_summary(self):
-        self.root.unbind("<Return>")
         self.save_to_leaderboard()
         for widget in self.root.winfo_children():
             widget.destroy()
@@ -178,8 +189,11 @@ class QuizApp:
         self.display_leaderboard()
 
     def save_to_leaderboard(self):
-        with open(LEADERBOARD_FILE, "a") as file:
-            file.write(f"{self.player_name},{self.score},{self.difficulty}\n")
+        try:
+            with open(LEADERBOARD_FILE, "a") as file:
+                file.write(f"{self.player_name},{self.score},{self.difficulty}\n")
+        except Exception as e:
+            print(f"Error saving leaderboard: {e}")
 
     def display_leaderboard(self):
         try:
@@ -188,14 +202,14 @@ class QuizApp:
                 entries.sort(key=lambda x: int(x[1]), reverse=True)
                 top = entries[:5]
 
-            tk.Label(self.root, text="\n🏆 Leaderboard:", font=("Arial", 14)).pack()
-            for i, (name, score, diff) in enumerate(top, 1):
-                color = "gold" if i == 1 else "black"
-                tk.Label(self.root, text=f"{i}. {name} - {score} pts ({diff})", fg=color).pack()
-        except FileNotFoundError:
+            tk.Label(self.root, text="\n🏆 Leaderboard:", font=("Arial", 14, "bold")).pack()
+            for i, entry in enumerate(top, 1):
+                name, score, diff = entry
+                tk.Label(self.root, text=f"{i}. {name} - {score} pts ({diff})").pack()
+        except Exception as e:
+            print(f"Error reading leaderboard: {e}")
             tk.Label(self.root, text="No leaderboard data yet.").pack()
 
-# Run the app
 if __name__ == "__main__":
     root = tk.Tk()
     app = QuizApp(root)
