@@ -1,3 +1,1 @@
-Amit,20,medium
-Sumit,30,hard
-Amit,20,medium
+Amit,30,hard
