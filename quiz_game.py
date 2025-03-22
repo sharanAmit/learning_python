@@ -1,174 +1,198 @@
+# Folder structure:
+# quiz_app/
+# ├── quiz_gui.py
+# ├── assets/
+# │   ├── images/
+# │   │   └── mars.png (etc.)
+# │   └── sounds/
+# │       ├── correct.mp3
+# │       ├── wrong.mp3
+# │       └── timer_end.mp3
+# └── leaderboard.txt
+
 import tkinter as tk
 from tkinter import messagebox
+import PIL
+import playsound3
+from PIL import Image, ImageTk
+from playsound3 import playsound
 import random
-import threading
-import time
+import os
 
-# Data
+TIME_LIMIT = 15
+LEADERBOARD_FILE = "leaderboard.txt"
+
+# Example categorized question set with difficulty
 questions = {
-    "easy": [
-        {"type": "multiple", "question": "Capital of France?", "options": ["Paris", "London", "Berlin", "Madrid"], "answer": "Paris"},
-        {"type": "truefalse", "question": "The sky is blue.", "answer": "True"},
-    ],
-    "medium": [
-        {"type": "open", "question": "Element with symbol 'O'?", "answer": "Oxygen"},
-        {"type": "truefalse", "question": "Python is statically typed.", "answer": "False"},
-    ],
-    "hard": [
-        {"type": "multiple", "question": "Which has O(n log n) average time?", "options": ["Bubble", "Insertion", "Merge", "Selection"], "answer": "Merge"},
-        {"type": "open", "question": "DNS stands for?", "answer": "Domain Name System"},
-    ]
+    "science": {
+        "easy": [
+            {"type": "multiple", "question": "What planet is known as the Red Planet?", "options": ["Earth", "Mars", "Venus", "Jupiter"], "answer": "Mars", "image": "mars.png"},
+            {"type": "truefalse", "question": "Water freezes at 0°C.", "answer": "True"},
+        ],
+        "medium": [
+            {"type": "open", "question": "Symbol for Gold?", "answer": "Au"},
+        ],
+        "hard": [
+            {"type": "open", "question": "What does DNA stand for?", "answer": "Deoxyribonucleic acid"},
+        ]
+    },
+    "history": {
+        "easy": [
+            {"type": "truefalse", "question": "The Great Wall is in China.", "answer": "True"},
+        ],
+        "medium": [
+            {"type": "multiple", "question": "Who discovered America?", "options": ["Columbus", "Vespucci", "Cook", "Magellan"], "answer": "Columbus"},
+        ],
+        "hard": [
+            {"type": "open", "question": "Year WW2 ended?", "answer": "1945"},
+        ]
+    }
 }
 
-difficulty_points = {"easy": 10, "medium": 20, "hard": 30}
-LEADERBOARD_FILE = "leaderboard.txt"
-TIME_LIMIT = 15
+points = {"easy": 10, "medium": 20, "hard": 30}
+themes = {
+    "light": {"bg": "#ffffff", "fg": "#000000"},
+    "dark": {"bg": "#222222", "fg": "#f5f5f5"}
+}
 
 class QuizApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("🧠 Quiz Game")
-        self.root.geometry("500x400")
-        self.root.resizable(False, False)
-        self.player_name = ""
-        self.difficulty = "easy"
+        self.root.title("Quiz Game")
+        self.root.geometry("600x500")
         self.score = 0
         self.correct = 0
         self.q_index = 0
-        self.questions = []
         self.timer = TIME_LIMIT
         self.timer_id = None
+        self.theme_choice = "light"
 
         self.setup_start_screen()
 
     def setup_start_screen(self):
-        for widget in self.root.winfo_children():
-            widget.destroy()
+        self.clear_screen()
 
-        tk.Label(self.root, text="Welcome to the Quiz Game!", font=("Arial", 18)).pack(pady=20)
+        self.player_name = tk.StringVar()
+        self.difficulty = tk.StringVar(value="easy")
+        self.category = tk.StringVar(value="science")
+        self.theme = tk.StringVar(value="light")
 
-        tk.Label(self.root, text="Enter your name:").pack()
-        self.name_entry = tk.Entry(self.root)
-        self.name_entry.pack(pady=5)
+        tk.Label(self.root, text="Name:").pack()
+        tk.Entry(self.root, textvariable=self.player_name).pack(pady=5)
 
-        tk.Label(self.root, text="Select difficulty:").pack(pady=10)
-        self.diff_var = tk.StringVar(value="easy")
+        tk.Label(self.root, text="Select Category:").pack()
+        for cat in questions.keys():
+            tk.Radiobutton(self.root, text=cat.title(), variable=self.category, value=cat).pack()
+
+        tk.Label(self.root, text="Select Difficulty:").pack()
         for level in ["easy", "medium", "hard"]:
-            tk.Radiobutton(self.root, text=level.title(), variable=self.diff_var, value=level).pack()
+            tk.Radiobutton(self.root, text=level.title(), variable=self.difficulty, value=level).pack()
 
-        tk.Button(self.root, text="Start Quiz", command=self.start_quiz).pack(pady=20)
+        tk.Label(self.root, text="Theme:").pack()
+        for t in ["light", "dark"]:
+            tk.Radiobutton(self.root, text=t.title(), variable=self.theme, value=t).pack()
+
+        tk.Button(self.root, text="Start Quiz", command=self.start_quiz).pack(pady=10)
+
+    def apply_theme(self):
+        theme = themes[self.theme_choice]
+        self.root.configure(bg=theme["bg"])
+        for widget in self.root.winfo_children():
+            try:
+                widget.configure(bg=theme["bg"], fg=theme["fg"])
+            except:
+                pass
+
+    def play_sound(self, name):
+        try:
+            playsound(os.path.join("assets/sounds", f"{name}.mp3"), block=False)
+        except:
+            pass
 
     def start_quiz(self):
-        name = self.name_entry.get().strip()
+        name = self.player_name.get().strip()
         if not name:
-            messagebox.showerror("Error", "Please enter your name.")
+            messagebox.showerror("Error", "Enter your name.")
             return
 
-        self.player_name = name
-        self.difficulty = self.diff_var.get()
+        self.name = name
+        self.theme_choice = self.theme.get()
+        self.apply_theme()
+
+        self.q_list = questions[self.category.get()][self.difficulty.get()]
+        random.shuffle(self.q_list)
         self.score = 0
         self.correct = 0
         self.q_index = 0
-        self.questions = random.sample(questions[self.difficulty], len(questions[self.difficulty]))
         self.next_question()
 
     def next_question(self):
-        if self.q_index >= len(self.questions):
-            self.show_summary()
-            return
-
+        if self.q_index >= len(self.q_list):
+            return self.show_summary()
         self.timer = TIME_LIMIT
-        self.render_question(self.questions[self.q_index])
-        self.start_timer()
+        self.render_question(self.q_list[self.q_index])
+        self.update_timer()
 
     def render_question(self, q):
-        for widget in self.root.winfo_children():
-            widget.destroy()
+        self.clear_screen()
+        tk.Label(self.root, text=f"Time: {self.timer}s", name="timer", font=("Arial", 12), fg="red").pack(anchor="ne", padx=10, pady=5)
+        tk.Label(self.root, text=f"Score: {self.score}").pack(anchor="nw", padx=10)
 
-        tk.Label(self.root, text=f"Time left: {self.timer} sec", font=("Arial", 12), fg="red", name="timer").pack(anchor="ne", padx=10, pady=5)
-        tk.Label(self.root, text=f"Score: {self.score}", font=("Arial", 12)).pack(anchor="nw", padx=10)
+        if "image" in q:
+            img_path = os.path.join("assets/images", q["image"])
+            img = Image.open(img_path)
+            img = img.resize((200, 150))
+            img = ImageTk.PhotoImage(img)
+            lbl = tk.Label(self.root, image=img)
+            lbl.image = img
+            lbl.pack(pady=5)
 
-        tk.Label(self.root, text=f"\nQ{self.q_index + 1}: {q['question']}", font=("Arial", 14)).pack(pady=10)
+        tk.Label(self.root, text=f"Q{self.q_index+1}: {q['question']}", font=("Arial", 14)).pack(pady=10)
 
-        self.answer_var = tk.StringVar()
-
-        if q["type"] == "multiple":
-            for opt in q["options"]:
-                tk.Radiobutton(self.root, text=opt, variable=self.answer_var, value=opt).pack(anchor="w", padx=30)
-        elif q["type"] == "truefalse":
-            for opt in ["True", "False"]:
-                tk.Radiobutton(self.root, text=opt, variable=self.answer_var, value=opt).pack(anchor="w", padx=30)
+        self.answer = tk.StringVar()
+        if q["type"] == "multiple" or q["type"] == "truefalse":
+            opts = q.get("options", ["True", "False"])
+            for opt in opts:
+                tk.Radiobutton(self.root, text=opt, variable=self.answer, value=opt).pack(anchor="w", padx=30)
         elif q["type"] == "open":
-            tk.Entry(self.root, textvariable=self.answer_var).pack(pady=10)
+            tk.Entry(self.root, textvariable=self.answer).pack(pady=5)
 
-        tk.Button(self.root, text="Submit", command=self.submit_answer).pack(pady=20)
+        tk.Button(self.root, text="Submit", command=self.submit_answer).pack(pady=10)
 
     def update_timer(self):
         self.timer -= 1
         if self.timer >= 0:
-            timer_label = self.root.nametowidget("timer")
-            timer_label.config(text=f"Time left: {self.timer} sec")
+            try:
+                timer_label = self.root.nametowidget("timer")
+                timer_label.config(text=f"Time: {self.timer}s")
+            except:
+                pass
             self.timer_id = self.root.after(1000, self.update_timer)
         else:
-            self.root.after_cancel(self.timer_id)
+            self.play_sound("timer_end")
             messagebox.showinfo("Time's up!", "You ran out of time!")
             self.q_index += 1
             self.next_question()
-
-    def start_timer(self):
-        self.update_timer()
 
     def submit_answer(self):
         if self.timer_id:
             self.root.after_cancel(self.timer_id)
 
-        user_ans = self.answer_var.get().strip().lower()
-        correct_ans = self.questions[self.q_index]['answer'].lower()
+        user = self.answer.get().strip().lower()
+        correct = self.q_list[self.q_index]['answer'].lower()
 
-        if user_ans == correct_ans:
+        if user == correct:
+            self.score += points[self.difficulty.get()]
             self.correct += 1
-            self.score += difficulty_points[self.difficulty]
-            messagebox.showinfo("Correct", "✅ Good job!")
+            self.play_sound("correct")
+            messagebox.showinfo("Correct", "Good job!")
         else:
-            messagebox.showinfo("Incorrect", f"❌ Correct Answer: {self.questions[self.q_index]['answer']}")
+            self.play_sound("wrong")
+            messagebox.showinfo("Incorrect", f"Answer: {self.q_list[self.q_index]['answer']}")
 
         self.q_index += 1
         self.next_question()
 
     def show_summary(self):
-        self.save_to_leaderboard()
-        for widget in self.root.winfo_children():
-            widget.destroy()
-
-        tk.Label(self.root, text="🎉 Quiz Completed!", font=("Arial", 18)).pack(pady=20)
-        tk.Label(self.root, text=f"{self.player_name}, your score: {self.score}").pack()
-        tk.Label(self.root, text=f"Correct: {self.correct} / {len(self.questions)}").pack()
-        tk.Label(self.root, text=f"Accuracy: {(self.correct / len(self.questions)) * 100:.2f}%").pack(pady=10)
-
-        tk.Button(self.root, text="Play Again", command=self.setup_start_screen).pack(pady=5)
-        tk.Button(self.root, text="Exit", command=self.root.quit).pack(pady=5)
-
-        self.display_leaderboard()
-
-    def save_to_leaderboard(self):
-        with open(LEADERBOARD_FILE, "a") as file:
-            file.write(f"{self.player_name},{self.score},{self.difficulty}\n")
-
-    def display_leaderboard(self):
-        try:
-            with open(LEADERBOARD_FILE, "r") as file:
-                entries = [line.strip().split(",") for line in file.readlines()]
-                entries.sort(key=lambda x: int(x[1]), reverse=True)
-                top = entries[:5]
-
-            tk.Label(self.root, text="\n🏆 Leaderboard:", font=("Arial", 14)).pack()
-            for i, (name, score, diff) in enumerate(top, 1):
-                tk.Label(self.root, text=f"{i}. {name} - {score} pts ({diff})").pack()
-        except FileNotFoundError:
-            tk.Label(self.root, text="No leaderboard data yet.").pack()
-
-# Run the app
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = QuizApp(root)
-    root.mainloop()
+        self.save_score()
+        self.clear_screen()

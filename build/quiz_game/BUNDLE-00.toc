@@ -1,0 +1,3 @@
+([('quiz_game',
+   '/Users/amitsharan/learning_pyhton/quiz_game/dist/quiz_game',
+   'EXECUTABLE')],)
